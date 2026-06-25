@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitops-mcp-server
+  namespace: gitops-mcp
+  labels:
+    app.kubernetes.io/name: gitops-mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitops-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitops-mcp-server
+    spec:
+      containers:
+        - name: gitops-mcp
+          image: gitops-mcp-server:latest
+          imagePullPolicy: IfNotPresent
+          args: ["--config", "/etc/gitops-mcp/config.yaml"]
+          ports:
+            - name: http
+              containerPort: 18080
+              protocol: TCP
+          env:
+            # 敏感配置：从 Secret 注入
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitops-mcp-secrets
+                  key: github-token
+            - name: MCP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gitops-mcp-secrets
+                  key: api-key
+                  optional: true
+            # 非敏感配置：从 ConfigMap 注入（覆盖配置文件中的值）
+            - name: GITHUB_DEFAULT_OWNER
+              valueFrom:
+                configMapKeyRef:
+                  name: gitops-mcp-config
+                  key: GITHUB_DEFAULT_OWNER
+                  optional: true
+            - name: MCP_TRANSPORT
+              valueFrom:
+                configMapKeyRef:
+                  name: gitops-mcp-config
+                  key: MCP_TRANSPORT
+            - name: MCP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: gitops-mcp-config
+                  key: MCP_PORT
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: gitops-mcp-config
+                  key: LOG_LEVEL
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gitops-mcp
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: gitops-mcp-config
+            items:
+              - key: config.yaml
+                path: config.yaml

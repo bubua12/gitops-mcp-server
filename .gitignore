@@ -22,6 +22,7 @@ coverage.txt
 .env.*
 *.pem
 *.key
+deploy/k8s/secret.yaml
 
 # OS
 .DS_Store
