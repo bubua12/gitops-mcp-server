@@ -3,7 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Load 加载配置，优先级：环境变量 > 配置文件 > 默认值
@@ -52,9 +55,9 @@ func loadFromFile(path string, cfg *Config) error {
 		return err
 	}
 
-	// 简单的 YAML 解析（不引入第三方库，先用环境变量方式）
-	_ = data
-	// TODO: 使用 gopkg.in/yaml.v3 解析
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("parse yaml: %w", err)
+	}
 	return nil
 }
 
@@ -83,6 +86,30 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("GITHUB_TOKENS"); v != "" {
 		cfg.GitHub.Tokens = parseTokens(v)
 	}
+}
+
+// ResolveConfigPath 确定配置文件路径
+// 优先级：显式传入 > MCP_CONFIG 环境变量 > 默认路径 configs/config.yaml
+// 返回空字符串表示没有找到配置文件（走纯环境变量模式）
+func ResolveConfigPath(explicit string) string {
+	// 1. 显式指定（命令行参数）
+	if explicit != "" {
+		return explicit
+	}
+
+	// 2. 环境变量
+	if v := os.Getenv("MCP_CONFIG"); v != "" {
+		return v
+	}
+
+	// 3. 默认路径：当前目录下的 configs/config.yaml
+	defaultPath := filepath.Join("configs", "config.yaml")
+	if _, err := os.Stat(defaultPath); err == nil {
+		return defaultPath
+	}
+
+	// 没有配置文件，走纯环境变量模式
+	return ""
 }
 
 // parseTokens 解析多 Token 配置

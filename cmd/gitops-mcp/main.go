@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -27,8 +28,12 @@ import (
 )
 
 func main() {
-	// 加载配置
-	cfg, err := config.Load("")
+	// 命令行参数
+	configPath := flag.String("config", "", "配置文件路径（默认自动查找 configs/config.yaml）")
+	flag.Parse()
+
+	// 加载配置（优先级：环境变量 > 配置文件 > 默认值）
+	cfg, err := config.Load(config.ResolveConfigPath(*configPath))
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
