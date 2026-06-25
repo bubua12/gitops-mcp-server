@@ -23,6 +23,7 @@ type IssueInfo struct {
 	User      string
 	Labels    []string
 	Assignees []string
+	Repo      string // owner/repo，搜索场景下标识 Issue 所属仓库
 	URL       string
 	CreatedAt string
 	UpdatedAt string
@@ -185,6 +186,14 @@ func issueToInfo(issue *github.Issue) *IssueInfo {
 	for i, a := range issue.Assignees {
 		assignees[i] = a.GetLogin()
 	}
+	// 从 HTMLURL 解析 owner/repo（搜索场景下 Issue 来自不同仓库）
+	repo := ""
+	if htmlURL := issue.GetHTMLURL(); htmlURL != "" {
+		parts := strings.Split(htmlURL, "/")
+		if len(parts) >= 5 {
+			repo = parts[3] + "/" + parts[4]
+		}
+	}
 	return &IssueInfo{
 		Number:    issue.GetNumber(),
 		Title:     issue.GetTitle(),
@@ -193,6 +202,7 @@ func issueToInfo(issue *github.Issue) *IssueInfo {
 		User:      issue.GetUser().GetLogin(),
 		Labels:    labels,
 		Assignees: assignees,
+		Repo:      repo,
 		URL:       issue.GetHTMLURL(),
 		CreatedAt: issue.GetCreatedAt().String(),
 		UpdatedAt: issue.GetUpdatedAt().String(),

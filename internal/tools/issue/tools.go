@@ -175,7 +175,11 @@ func RegisterIssueTools(mcpServer *server.MCPServer, ghClient *github.Client) {
 			if issue.State == "closed" {
 				state = "🔴"
 			}
-			result += fmt.Sprintf("%s #%d %s (by %s)\n", state, issue.Number, issue.Title, issue.User)
+			if issue.Repo != "" {
+				result += fmt.Sprintf("%s **%s** #%d %s (by %s)\n", state, issue.Repo, issue.Number, issue.Title, issue.User)
+			} else {
+				result += fmt.Sprintf("%s #%d %s (by %s)\n", state, issue.Number, issue.Title, issue.User)
+			}
 		}
 		return textResult(result), nil
 	})
