@@ -8,6 +8,8 @@ import (
 
 	"gitops-mcp-server/internal/config"
 	"gitops-mcp-server/internal/github"
+	"gitops-mcp-server/internal/tools/cicd"
+	"gitops-mcp-server/internal/tools/intelligence"
 	"gitops-mcp-server/internal/tools/issue"
 	"gitops-mcp-server/internal/tools/pr"
 	"gitops-mcp-server/internal/tools/release"
@@ -93,6 +95,12 @@ func main() {
 
 	// 注册 Release Tools
 	release.RegisterReleaseTools(mcpServer, ghClient)
+
+	// 注册 Code Intelligence Tools
+	intelligence.RegisterIntelligenceTools(mcpServer, ghClient)
+
+	// 注册 CI/CD Tools
+	cicd.RegisterCICDTools(mcpServer, ghClient)
 
 	// 启动 MCP Server
 	transport := cfg.Server.Transport

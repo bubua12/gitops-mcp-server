@@ -98,6 +98,11 @@ func (c *Client) Releases() *ReleaseService {
 	return &ReleaseService{client: c}
 }
 
+// Actions 返回 CI/CD 相关操作
+func (c *Client) Actions() *ActionsService {
+	return &ActionsService{client: c}
+}
+
 // Git 返回 Git 相关操作
 func (c *Client) Git() *GitService {
 	return &GitService{client: c}
