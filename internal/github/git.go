@@ -135,6 +135,62 @@ func (s *GitService) ListTags(ctx context.Context, owner, repo string, opts *git
 	return result, nil
 }
 
+// CreateLightweightTag 创建轻量 Tag（指向 commit）
+func (s *GitService) CreateLightweightTag(ctx context.Context, owner, repo, tagName, sha string) error {
+	owner = s.client.resolveOwner(owner)
+	ref := "refs/tags/" + tagName
+	_, _, err := s.client.gh.Git.CreateRef(ctx, owner, repo, &github.Reference{
+		Ref:    &ref,
+		Object: &github.GitObject{SHA: &sha},
+	})
+	if err != nil {
+		return fmt.Errorf("create lightweight tag %s: %w", tagName, err)
+	}
+	return nil
+}
+
+// CreateAnnotatedTag 创建附注 Tag（带消息）
+func (s *GitService) CreateAnnotatedTag(ctx context.Context, owner, repo, tagName, message, sha string) error {
+	owner = s.client.resolveOwner(owner)
+	tagType := "commit"
+	tag, _, err := s.client.gh.Git.CreateTag(ctx, owner, repo, &github.Tag{
+		Tag:     &tagName,
+		Message: &message,
+		Object: &github.GitObject{
+			SHA:  &sha,
+			Type: &tagType,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create annotated tag %s: %w", tagName, err)
+	}
+	// 创建 ref 指向附注 Tag 对象
+	ref := "refs/tags/" + tagName
+	_, _, err = s.client.gh.Git.CreateRef(ctx, owner, repo, &github.Reference{
+		Ref:    &ref,
+		Object: &github.GitObject{SHA: tag.SHA},
+	})
+	if err != nil {
+		return fmt.Errorf("create ref for tag %s: %w", tagName, err)
+	}
+	return nil
+}
+
+// GetDefaultBranchSHA 获取默认分支最新 commit SHA
+func (s *GitService) GetDefaultBranchSHA(ctx context.Context, owner, repo string) (string, error) {
+	owner = s.client.resolveOwner(owner)
+	r, _, err := s.client.gh.Repositories.Get(ctx, owner, repo)
+	if err != nil {
+		return "", fmt.Errorf("get repo %s/%s: %w", owner, repo, err)
+	}
+	branch := r.GetDefaultBranch()
+	ref, _, err := s.client.gh.Git.GetRef(ctx, owner, repo, "refs/heads/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("get default branch ref: %w", err)
+	}
+	return ref.GetObject().GetSHA(), nil
+}
+
 // CompareRefs 对比两个 ref
 func (s *GitService) CompareRefs(ctx context.Context, owner, repo, base, head string) (string, error) {
 	owner = s.client.resolveOwner(owner)

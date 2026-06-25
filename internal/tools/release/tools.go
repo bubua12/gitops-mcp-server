@@ -88,23 +88,33 @@ func RegisterReleaseTools(mcpServer *server.MCPServer, ghClient *github.Client) 
 		target := request.GetString("target_commitish", "")
 		message := request.GetString("message", "")
 
-		req := &gogithub.RepositoryRelease{
-			TagName: &tagName,
-		}
-		if target != "" {
-			req.TargetCommitish = &target
-		}
-		if message != "" {
-			req.Name = &message
+		// 如果未指定 target，默认使用默认分支最新 commit
+		sha := target
+		if sha == "" {
+			var err error
+			sha, err = gitSvc.GetDefaultBranchSHA(ctx, owner, repo)
+			if err != nil {
+				return errorResult(err.Error()), nil
+			}
 		}
 
-		// 使用 CreateRelease 来创建 tag（GitHub API 的 release 会自动创建 tag）
-		release, err := releaseSvc.CreateRelease(ctx, owner, repo, req)
+		var err error
+		if message != "" {
+			// 附注 Tag
+			err = gitSvc.CreateAnnotatedTag(ctx, owner, repo, tagName, message, sha)
+		} else {
+			// 轻量 Tag
+			err = gitSvc.CreateLightweightTag(ctx, owner, repo, tagName, sha)
+		}
 		if err != nil {
 			return errorResult(err.Error()), nil
 		}
 
-		return textResult(fmt.Sprintf("✅ 已创建 Tag: %s\n\n%s", release.TagName, github.FormatRelease(release))), nil
+		tagType := "轻量 Tag"
+		if message != "" {
+			tagType = "附注 Tag"
+		}
+		return textResult(fmt.Sprintf("✅ 已创建 %s: %s (commit: %s)\n\n%s", tagType, tagName, sha[:7], message)), nil
 	})
 
 	// list_releases
@@ -211,17 +221,23 @@ func RegisterReleaseTools(mcpServer *server.MCPServer, ghClient *github.Client) 
 			return errorResult(err.Error()), nil
 		}
 
-		result := fmt.Sprintf("✅ 已创建 Release: %s\n\n%s", release.TagName, github.FormatRelease(release))
-
-		// 如果需要自动生成 Release Notes
+		// 如果需要自动生成 Release Notes，写回 Release Body
 		if generateNotes {
 			notes, err := releaseSvc.GenerateReleaseNotes(ctx, owner, repo, tagName, "")
 			if err == nil {
-				result += "\n\n## 自动生成的 Release Notes\n\n" + notes
+				updateReq := &gogithub.RepositoryRelease{
+					Body: &notes,
+				}
+				release, err = releaseSvc.UpdateRelease(ctx, owner, repo, int64(release.ID), updateReq)
+				if err != nil {
+					// 更新失败不阻断，返回创建结果并附带 notes
+					return textResult(fmt.Sprintf("✅ 已创建 Release: %s\n\n%s\n\n⚠️ 自动更新 Body 失败，以下是生成的 Release Notes：\n\n%s",
+						release.TagName, github.FormatRelease(release), notes)), nil
+				}
 			}
 		}
 
-		return textResult(result), nil
+		return textResult(fmt.Sprintf("✅ 已创建 Release: %s\n\n%s", release.TagName, github.FormatRelease(release))), nil
 	})
 
 	// generate_release_notes
@@ -292,6 +308,84 @@ func RegisterReleaseTools(mcpServer *server.MCPServer, ghClient *github.Client) 
 		}
 
 		return textResult(github.FormatRelease(release)), nil
+	})
+
+	// update_release
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "update_release",
+		Description: "更新已有 Release 的标题、描述、状态等",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"owner": map[string]any{
+					"type":        "string",
+					"description": "仓库所有者",
+				},
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "仓库名称",
+				},
+				"tag_name": map[string]any{
+					"type":        "string",
+					"description": "Tag 名称（用于查找 Release）",
+				},
+				"name": map[string]any{
+					"type":        "string",
+					"description": "新标题（可选）",
+				},
+				"body": map[string]any{
+					"type":        "string",
+					"description": "新描述（可选）",
+				},
+				"draft": map[string]any{
+					"type":        "boolean",
+					"description": "是否为草稿（可选）",
+				},
+				"prerelease": map[string]any{
+					"type":        "boolean",
+					"description": "是否为预发布（可选）",
+				},
+			},
+			Required: []string{"repo", "tag_name"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		owner := request.GetString("owner", "")
+		repo := request.GetString("repo", "")
+		tagName := request.GetString("tag_name", "")
+		name := request.GetString("name", "")
+		body := request.GetString("body", "")
+
+		// 先通过 tag_name 查找 Release
+		releases, err := releaseSvc.ListReleases(ctx, owner, repo, &gogithub.ListOptions{PerPage: 100})
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		var target *github.ReleaseInfo
+		for _, r := range releases {
+			if r.TagName == tagName {
+				target = r
+				break
+			}
+		}
+		if target == nil {
+			return errorResult(fmt.Sprintf("未找到 tag_name=%s 的 Release", tagName)), nil
+		}
+
+		req := &gogithub.RepositoryRelease{}
+		if name != "" {
+			req.Name = &name
+		}
+		if body != "" {
+			req.Body = &body
+		}
+
+		updated, err := releaseSvc.UpdateRelease(ctx, owner, repo, int64(target.ID), req)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return textResult(fmt.Sprintf("✅ Release 已更新: %s\n\n%s", updated.TagName, github.FormatRelease(updated))), nil
 	})
 }
 
