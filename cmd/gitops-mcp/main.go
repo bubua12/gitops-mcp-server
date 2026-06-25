@@ -4,13 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"gitops-mcp-server/internal/config"
 	"gitops-mcp-server/internal/github"
+	"gitops-mcp-server/internal/monitor"
+	"gitops-mcp-server/internal/notify"
 	"gitops-mcp-server/internal/tools/cicd"
 	"gitops-mcp-server/internal/tools/intelligence"
 	"gitops-mcp-server/internal/tools/issue"
+	monitorTools "gitops-mcp-server/internal/tools/monitor"
+	notifyTools "gitops-mcp-server/internal/tools/notify"
 	"gitops-mcp-server/internal/tools/pr"
 	"gitops-mcp-server/internal/tools/release"
 	"gitops-mcp-server/internal/tools/repo"
@@ -43,6 +50,19 @@ func main() {
 	} else {
 		log.Println("GitHub connection successful")
 	}
+
+	// 创建通知管理器
+	notifyMgr := notify.NewManager()
+
+	// 注册终端通知渠道（默认启用）
+	notifyMgr.Register(notify.NewTerminalChannel("terminal"))
+
+	// 创建监控引擎
+	monitorEngine := monitor.NewEngine(ghClient, notifyMgr)
+
+	// 启动监控引擎
+	monitorEngine.Start(context.Background())
+	defer monitorEngine.Stop()
 
 	// 创建 MCP Server
 	mcpServer := server.NewMCPServer(
@@ -101,6 +121,23 @@ func main() {
 
 	// 注册 CI/CD Tools
 	cicd.RegisterCICDTools(mcpServer, ghClient)
+
+	// 注册监控 Tools
+	monitorTools.RegisterMonitorTools(mcpServer, monitorEngine)
+
+	// 注册通知 Tools
+	notifyTools.RegisterNotifyTools(mcpServer, notifyMgr)
+
+	// 优雅退出
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		log.Println("Shutting down...")
+		monitorEngine.Stop()
+		os.Exit(0)
+	}()
 
 	// 启动 MCP Server
 	transport := cfg.Server.Transport
