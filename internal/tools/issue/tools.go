@@ -179,6 +179,319 @@ func RegisterIssueTools(mcpServer *server.MCPServer, ghClient *github.Client) {
 		}
 		return textResult(result), nil
 	})
+
+	// create_issue
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "create_issue",
+		Description: "创建新 Issue。支持设置标签、指派人",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"owner": map[string]any{
+					"type":        "string",
+					"description": "仓库所有者",
+				},
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "仓库名称",
+				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "Issue 标题",
+				},
+				"body": map[string]any{
+					"type":        "string",
+					"description": "Issue 描述，支持 Markdown",
+				},
+				"labels": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "标签列表",
+				},
+				"assignees": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "指派人列表",
+				},
+			},
+			Required: []string{"repo", "title"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		owner := request.GetString("owner", "")
+		repo := request.GetString("repo", "")
+		title := request.GetString("title", "")
+		body := request.GetString("body", "")
+
+		req := &gogithub.IssueRequest{
+			Title: &title,
+			Body:  &body,
+		}
+
+		// 处理 labels
+		if labels := getStringArray(request, "labels"); len(labels) > 0 {
+			req.Labels = &labels
+		}
+
+		// 处理 assignees
+		if assignees := getStringArray(request, "assignees"); len(assignees) > 0 {
+			req.Assignees = &assignees
+		}
+
+		issue, err := issueSvc.Create(ctx, owner, repo, req)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return textResult(fmt.Sprintf("✅ 已创建 Issue #%d\n\n%s", issue.Number, github.FormatIssue(issue))), nil
+	})
+
+	// update_issue
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "update_issue",
+		Description: "更新 Issue 的标题、描述、状态、标签等",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"owner": map[string]any{
+					"type":        "string",
+					"description": "仓库所有者",
+				},
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "仓库名称",
+				},
+				"number": map[string]any{
+					"type":        "integer",
+					"description": "Issue 编号",
+				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "新标题（可选）",
+				},
+				"body": map[string]any{
+					"type":        "string",
+					"description": "新描述（可选）",
+				},
+				"state": map[string]any{
+					"type":        "string",
+					"enum":        []string{"open", "closed"},
+					"description": "新状态（可选）",
+				},
+			},
+			Required: []string{"repo", "number"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		owner := request.GetString("owner", "")
+		repo := request.GetString("repo", "")
+		number := request.GetInt("number", 0)
+		title := request.GetString("title", "")
+		body := request.GetString("body", "")
+		state := request.GetString("state", "")
+
+		req := &gogithub.IssueRequest{}
+		if title != "" {
+			req.Title = &title
+		}
+		if body != "" {
+			req.Body = &body
+		}
+		if state != "" {
+			req.State = &state
+		}
+
+		issue, err := issueSvc.Update(ctx, owner, repo, number, req)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return textResult(fmt.Sprintf("✅ Issue #%d 已更新\n\n%s", issue.Number, github.FormatIssue(issue))), nil
+	})
+
+	// close_issue
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "close_issue",
+		Description: "关闭 Issue。支持指定关闭原因",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"owner": map[string]any{
+					"type":        "string",
+					"description": "仓库所有者",
+				},
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "仓库名称",
+				},
+				"number": map[string]any{
+					"type":        "integer",
+					"description": "Issue 编号",
+				},
+				"reason": map[string]any{
+					"type":        "string",
+					"enum":        []string{"completed", "not_planned", "duplicate"},
+					"description": "关闭原因，默认 completed",
+				},
+			},
+			Required: []string{"repo", "number"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		owner := request.GetString("owner", "")
+		repo := request.GetString("repo", "")
+		number := request.GetInt("number", 0)
+		reason := request.GetString("reason", "completed")
+
+		issue, err := issueSvc.Close(ctx, owner, repo, number, reason)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return textResult(fmt.Sprintf("✅ Issue #%d 已关闭 (原因: %s)\n\n%s", issue.Number, reason, github.FormatIssue(issue))), nil
+	})
+
+	// add_comment
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "add_comment",
+		Description: "对 Issue 添加评论",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"owner": map[string]any{
+					"type":        "string",
+					"description": "仓库所有者",
+				},
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "仓库名称",
+				},
+				"number": map[string]any{
+					"type":        "integer",
+					"description": "Issue 编号",
+				},
+				"body": map[string]any{
+					"type":        "string",
+					"description": "评论内容，支持 Markdown",
+				},
+			},
+			Required: []string{"repo", "number", "body"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		owner := request.GetString("owner", "")
+		repo := request.GetString("repo", "")
+		number := request.GetInt("number", 0)
+		body := request.GetString("body", "")
+
+		comment, err := issueSvc.AddComment(ctx, owner, repo, number, body)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return textResult(fmt.Sprintf("✅ 评论已添加 (ID: %d)\n\n%s", comment.ID, comment.Body)), nil
+	})
+
+	// add_labels
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "add_labels",
+		Description: "为 Issue 添加标签",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"owner": map[string]any{
+					"type":        "string",
+					"description": "仓库所有者",
+				},
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "仓库名称",
+				},
+				"number": map[string]any{
+					"type":        "integer",
+					"description": "Issue 编号",
+				},
+				"labels": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "要添加的标签列表",
+				},
+			},
+			Required: []string{"repo", "number", "labels"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		owner := request.GetString("owner", "")
+		repo := request.GetString("repo", "")
+		number := request.GetInt("number", 0)
+
+		labels := getStringArray(request, "labels")
+
+		if err := issueSvc.AddLabels(ctx, owner, repo, number, labels); err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return textResult(fmt.Sprintf("✅ 已为 Issue #%d 添加标签: %v", number, labels)), nil
+	})
+
+	// remove_labels
+	mcpServer.AddTool(mcp.Tool{
+		Name:        "remove_labels",
+		Description: "移除 Issue 的标签",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]any{
+				"owner": map[string]any{
+					"type":        "string",
+					"description": "仓库所有者",
+				},
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "仓库名称",
+				},
+				"number": map[string]any{
+					"type":        "integer",
+					"description": "Issue 编号",
+				},
+				"labels": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "要移除的标签列表",
+				},
+			},
+			Required: []string{"repo", "number", "labels"},
+		},
+	}, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		owner := request.GetString("owner", "")
+		repo := request.GetString("repo", "")
+		number := request.GetInt("number", 0)
+
+		labels := getStringArray(request, "labels")
+
+		if err := issueSvc.RemoveLabels(ctx, owner, repo, number, labels); err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return textResult(fmt.Sprintf("✅ 已从 Issue #%d 移除标签: %v", number, labels)), nil
+	})
+}
+
+// getStringArray 从请求中获取字符串数组参数
+func getStringArray(request mcp.CallToolRequest, key string) []string {
+	args, ok := request.Params.Arguments.(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := args[key]
+	if !ok {
+		return nil
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	var result []string
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 func textResult(text string) *mcp.CallToolResult {

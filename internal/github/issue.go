@@ -104,6 +104,78 @@ func (s *IssueService) Search(ctx context.Context, query string, opts *github.Se
 	return issues, result.GetTotal(), nil
 }
 
+// Create 创建 Issue
+func (s *IssueService) Create(ctx context.Context, owner, repo string, req *github.IssueRequest) (*IssueInfo, error) {
+	owner = s.client.resolveOwner(owner)
+	issue, _, err := s.client.gh.Issues.Create(ctx, owner, repo, req)
+	if err != nil {
+		return nil, fmt.Errorf("create issue %s/%s: %w", owner, repo, err)
+	}
+	return issueToInfo(issue), nil
+}
+
+// Update 更新 Issue
+func (s *IssueService) Update(ctx context.Context, owner, repo string, number int, req *github.IssueRequest) (*IssueInfo, error) {
+	owner = s.client.resolveOwner(owner)
+	issue, _, err := s.client.gh.Issues.Edit(ctx, owner, repo, number, req)
+	if err != nil {
+		return nil, fmt.Errorf("update issue %s/%s#%d: %w", owner, repo, number, err)
+	}
+	return issueToInfo(issue), nil
+}
+
+// Close 关闭 Issue
+func (s *IssueService) Close(ctx context.Context, owner, repo string, number int, reason string) (*IssueInfo, error) {
+	state := "closed"
+	req := &github.IssueRequest{
+		State: &state,
+	}
+	if reason != "" {
+		req.StateReason = &reason
+	}
+	return s.Update(ctx, owner, repo, number, req)
+}
+
+// AddComment 添加评论
+func (s *IssueService) AddComment(ctx context.Context, owner, repo string, number int, body string) (*CommentInfo, error) {
+	owner = s.client.resolveOwner(owner)
+	comment, _, err := s.client.gh.Issues.CreateComment(ctx, owner, repo, number, &github.IssueComment{
+		Body: &body,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("add comment to %s/%s#%d: %w", owner, repo, number, err)
+	}
+	return &CommentInfo{
+		ID:        int(comment.GetID()),
+		Body:      comment.GetBody(),
+		User:      comment.GetUser().GetLogin(),
+		CreatedAt: comment.GetCreatedAt().String(),
+		UpdatedAt: comment.GetUpdatedAt().String(),
+	}, nil
+}
+
+// AddLabels 添加标签
+func (s *IssueService) AddLabels(ctx context.Context, owner, repo string, number int, labels []string) error {
+	owner = s.client.resolveOwner(owner)
+	_, _, err := s.client.gh.Issues.AddLabelsToIssue(ctx, owner, repo, number, labels)
+	if err != nil {
+		return fmt.Errorf("add labels to %s/%s#%d: %w", owner, repo, number, err)
+	}
+	return nil
+}
+
+// RemoveLabels 移除标签
+func (s *IssueService) RemoveLabels(ctx context.Context, owner, repo string, number int, labels []string) error {
+	owner = s.client.resolveOwner(owner)
+	for _, label := range labels {
+		_, err := s.client.gh.Issues.RemoveLabelForIssue(ctx, owner, repo, number, label)
+		if err != nil {
+			return fmt.Errorf("remove label '%s' from %s/%s#%d: %w", label, owner, repo, number, err)
+		}
+	}
+	return nil
+}
+
 func issueToInfo(issue *github.Issue) *IssueInfo {
 	labels := make([]string, len(issue.Labels))
 	for i, l := range issue.Labels {

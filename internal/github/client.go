@@ -88,6 +88,16 @@ func (c *Client) Issues() *IssueService {
 	return &IssueService{client: c}
 }
 
+// PullRequests 返回 PR 相关操作
+func (c *Client) PullRequests() *PullRequestService {
+	return &PullRequestService{client: c}
+}
+
+// Releases 返回 Release 相关操作
+func (c *Client) Releases() *ReleaseService {
+	return &ReleaseService{client: c}
+}
+
 // Git 返回 Git 相关操作
 func (c *Client) Git() *GitService {
 	return &GitService{client: c}

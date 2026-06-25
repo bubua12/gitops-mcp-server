@@ -9,6 +9,8 @@ import (
 	"gitops-mcp-server/internal/config"
 	"gitops-mcp-server/internal/github"
 	"gitops-mcp-server/internal/tools/issue"
+	"gitops-mcp-server/internal/tools/pr"
+	"gitops-mcp-server/internal/tools/release"
 	"gitops-mcp-server/internal/tools/repo"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -85,6 +87,12 @@ func main() {
 
 	// 注册 Issue Tools
 	issue.RegisterIssueTools(mcpServer, ghClient)
+
+	// 注册 PR Tools
+	pr.RegisterPRTools(mcpServer, ghClient)
+
+	// 注册 Release Tools
+	release.RegisterReleaseTools(mcpServer, ghClient)
 
 	// 启动 MCP Server
 	transport := cfg.Server.Transport
